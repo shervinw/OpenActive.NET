@@ -297,11 +297,14 @@
             const int SCHEMA_ORG_HTTPS_LENGTH = 19; // equivalent to "https://schema.org/".Length
             const string OPENACTIVE_IO = "https://openactive.io/";
             const int OPENACTIVE_IO_LENGTH = 22; // equivalent to "https://openactive.io/".Length
+            const string GOOD_RELATIONS = "http://purl.org/goodrelations/v1#";
+            const int GOOD_RELATIONS_LENGTH = 33; // equivalent to "http://purl.org/goodrelations/v1#".Length
 
             var en = token.ToString();
             var enumString = en.Contains(OPENACTIVE_IO) ? en.Substring(OPENACTIVE_IO_LENGTH) :
                 en.Contains(SCHEMA_ORG) ? en.Substring(SCHEMA_ORG_LENGTH) :
-                en.Contains(SCHEMA_ORG_HTTPS) ? en.Substring(SCHEMA_ORG_HTTPS_LENGTH) : en;
+                en.Contains(SCHEMA_ORG_HTTPS) ? en.Substring(SCHEMA_ORG_HTTPS_LENGTH) :
+                en.Contains(GOOD_RELATIONS) ? en.Substring(GOOD_RELATIONS_LENGTH) : en;
             return Enum.Parse(unwrappedType, enumString);
         }
 
@@ -334,18 +337,18 @@
             var typeName = GetTypeNameFromToken(token);
             if (string.IsNullOrEmpty(typeName))
             {
-                args = token.ToObject(unwrappedType);
+                args = token.ToObjectWithoutContext(unwrappedType);
             }
             else if (typeName == type.Name)
             {
-                args = token.ToObject(type);
+                args = token.ToObjectWithoutContext(type);
             }
             else
             {
                 var builtType = Type.GetType($"{NamespacePrefix}{typeName}");
                 if (builtType != null && type.GetTypeInfo().IsAssignableFrom(builtType.GetTypeInfo()))
                 {
-                    args = token.ToObject(builtType);
+                    args = token.ToObjectWithoutContext(builtType);
                 }
             }
 
@@ -505,7 +508,7 @@
                 {
                     if (!type.GetTypeInfo().IsInterface && !type.GetTypeInfo().IsClass)
                     {
-                        args = token.ToObject(classType); // This is expected to throw on some case
+                        args = token.ToObjectWithoutContext(classType); // This is expected to throw on some case
                     }
                 }
             }
@@ -558,7 +561,7 @@
                     {
                         var child = classType.GetTypeInfo().IsEnum ? 
                             ParseEnum(childToken, type) 
-                            : childToken.ToObject(classType);
+                            : childToken.ToObjectWithoutContext(classType);
                         var method = listType.GetRuntimeMethod(nameof(List<object>.Add), new[] { classType });
 
                         if (method != null)
@@ -574,7 +577,7 @@
                     var builtType = Type.GetType($"{NamespacePrefix}{typeName}");
                     if (builtType != null && type.GetTypeInfo().IsAssignableFrom(builtType.GetTypeInfo()))
                     {
-                        var child = (Schema.NET.JsonLdObject)childToken.ToObject(builtType);
+                        var child = (Schema.NET.JsonLdObject)childToken.ToObjectWithoutContext(builtType);
                         var method = listType.GetRuntimeMethod(nameof(List<object>.Add), new[] { classType });
 
                         if (method != null)
@@ -598,7 +601,21 @@
         private static string GetTypeNameFromToken(JToken token)
         {
             var o = token as JObject;
-            return o?.SelectToken("@type")?.ToString();
+            return o?.SelectToken("@type")?.ToString().Replace("beta:", ""); // Ignore beta type prefix
+        }
+    }
+
+    public static class TokenExtensions
+    {
+        public static object ToObjectWithoutContext(this JToken token, Type objectType)
+        {
+            //Remove the "@context" from the object to ensure it is properly set during serialisation
+            //(as serialisation uses a basic find/replace approach assuming the context is set to its default value)
+            var o = token as JObject;
+            var p = o?.SelectToken("@context")?.Parent;
+            if (p != null) p.Remove();
+
+            return token.ToObject(objectType);
         }
     }
 }
